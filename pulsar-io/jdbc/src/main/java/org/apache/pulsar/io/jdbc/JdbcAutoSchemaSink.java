@@ -20,6 +20,10 @@
 package org.apache.pulsar.io.jdbc;
 
 import java.sql.PreparedStatement;
+import java.sql.Types;
+import java.util.List;
+
+import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.apache.pulsar.functions.api.Record;
@@ -33,7 +37,7 @@ import org.apache.pulsar.io.jdbc.JdbcUtils.ColumnId;
 @Connector(
     name = "jdbc",
     type = IOType.SINK,
-    help = "A simple JDBC sink that writes pulser messages to a database table",
+    help = "A simple JDBC sink that writes pulsar messages to a database table",
     configClass = JdbcSinkConfig.class
 )
 @Slf4j
@@ -41,20 +45,60 @@ public class JdbcAutoSchemaSink extends JdbcAbstractSink<GenericRecord> {
 
     @Override
     public void bindValue(PreparedStatement statement,
-                          Record<GenericRecord> message) throws Exception {
+                          Record<GenericRecord> message, String action) throws Exception {
 
         GenericRecord record = message.getValue();
+        List<ColumnId> columns = Lists.newArrayList();
+        if (action == null || action.equals(INSERT)) {
+            columns = tableDefinition.getColumns();
+        } else if (action.equals(DELETE)){
+            columns.addAll(tableDefinition.getKeyColumns());
+        } else if (action.equals(UPDATE)){
+            columns.addAll(tableDefinition.getNonKeyColumns());
+            columns.addAll(tableDefinition.getKeyColumns());
+        }
 
         int index = 1;
-        for (ColumnId columnId : tableDefinition.getColumns()) {
+        for (ColumnId columnId : columns) {
             String colName = columnId.getName();
-            Object obj = record.getField(colName);
-            setColumnValue(statement, index++, obj);
-            log.info("set column value: {}", obj.toString());
+            int colType = columnId.getType();
+            if (log.isDebugEnabled()) {
+                log.debug("colName: {} colType: {}", colName, colType);
+            }
+            try {
+                Object obj = record.getField(colName);
+                if (obj != null) {
+                    setColumnValue(statement, index++, obj);
+                } else {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Column {} is null", colName);
+                    }
+                    setColumnNull(statement, index++, colType);
+                }
+            } catch (NullPointerException e) {
+                // With JSON schema field is omitted, so get NPE
+                // In this case we want to set column to Null
+                if (log.isDebugEnabled()) {
+                    log.debug("Column {} is null", colName);
+                }
+                setColumnNull(statement, index++, colType);
+            }
+            
         }
     }
 
+    private static void setColumnNull(PreparedStatement statement, int index, int type) throws Exception {
+        if (log.isDebugEnabled()) {
+            log.debug("Setting column value to null, statement: {}, index: {}, value: {}", statement.toString(), index);
+        }
+        statement.setNull(index, type);
+
+    }
+
     private static void setColumnValue(PreparedStatement statement, int index, Object value) throws Exception {
+
+        log.debug("Setting column value, statement: {}, index: {}, value: {}", statement.toString(), index, value.toString());
+
         if (value instanceof Integer) {
             statement.setInt(index, (Integer) value);
         } else if (value instanceof Long) {
@@ -66,7 +110,7 @@ public class JdbcAutoSchemaSink extends JdbcAbstractSink<GenericRecord> {
         } else if (value instanceof Boolean) {
             statement.setBoolean(index, (Boolean) value);
         } else if (value instanceof String) {
-            statement.setString(index, (String )value);
+            statement.setString(index, (String)value);
         } else if (value instanceof Short) {
             statement.setShort(index, (Short) value);
         } else {

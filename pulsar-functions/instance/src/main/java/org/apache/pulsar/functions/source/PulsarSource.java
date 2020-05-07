@@ -45,15 +45,18 @@ public class PulsarSource<T> extends PushSource<T> implements MessageListener<T>
     private final PulsarClient pulsarClient;
     private final PulsarSourceConfig pulsarSourceConfig;
     private final Map<String, String> properties;
+    private final ClassLoader functionClassLoader;
     private List<String> inputTopics;
-    private List<Consumer<T>> inputConsumers;
+    private List<Consumer<T>> inputConsumers = new LinkedList<>();
     private final TopicSchema topicSchema;
 
-    public PulsarSource(PulsarClient pulsarClient, PulsarSourceConfig pulsarConfig, Map<String, String> properties) {
+    public PulsarSource(PulsarClient pulsarClient, PulsarSourceConfig pulsarConfig, Map<String, String> properties,
+                        ClassLoader functionClassLoader) {
         this.pulsarClient = pulsarClient;
         this.pulsarSourceConfig = pulsarConfig;
         this.topicSchema = new TopicSchema(pulsarClient);
         this.properties = properties;
+        this.functionClassLoader = functionClassLoader;
     }
 
     @Override
@@ -62,29 +65,32 @@ public class PulsarSource<T> extends PushSource<T> implements MessageListener<T>
         log.info("Opening pulsar source with config: {}", pulsarSourceConfig);
         Map<String, ConsumerConfig<T>> configs = setupConsumerConfigs();
 
-        inputConsumers = configs.entrySet().stream().map(e -> {
+        for (Map.Entry<String, ConsumerConfig<T>> e : configs.entrySet()) {
             String topic = e.getKey();
             ConsumerConfig<T> conf = e.getValue();
-            log.info("Creating consumers for topic : {}, schema : {}",  topic, conf.getSchema());
+            log.info("Creating consumers for topic : {}, schema : {}, schemaInfo: {}",
+                    topic, conf.getSchema(), conf.getSchema().getSchemaInfo());
+
             ConsumerBuilder<T> cb = pulsarClient.newConsumer(conf.getSchema())
                     // consume message even if can't decrypt and deliver it along with encryption-ctx
                     .cryptoFailureAction(ConsumerCryptoFailureAction.CONSUME)
                     .subscriptionName(pulsarSourceConfig.getSubscriptionName())
+                    .subscriptionInitialPosition(pulsarSourceConfig.getSubscriptionPosition())
                     .subscriptionType(pulsarSourceConfig.getSubscriptionType())
                     .messageListener(this);
 
             if (conf.isRegexPattern) {
-                cb.topicsPattern(topic);
+                cb = cb.topicsPattern(topic);
             } else {
-                cb.topic(topic);
+                cb = cb.topics(Collections.singletonList(topic));
             }
             if (conf.getReceiverQueueSize() != null) {
-                cb.receiverQueueSize(conf.getReceiverQueueSize());
+                cb = cb.receiverQueueSize(conf.getReceiverQueueSize());
             }
-            cb.properties(properties);
+            cb = cb.properties(properties);
 
             if (pulsarSourceConfig.getTimeoutMs() != null) {
-                cb.ackTimeout(pulsarSourceConfig.getTimeoutMs(), TimeUnit.MILLISECONDS);
+                cb = cb.ackTimeout(pulsarSourceConfig.getTimeoutMs(), TimeUnit.MILLISECONDS);
             }
 
             if (pulsarSourceConfig.getMaxMessageRetries() != null && pulsarSourceConfig.getMaxMessageRetries() >= 0) {
@@ -93,11 +99,12 @@ public class PulsarSource<T> extends PushSource<T> implements MessageListener<T>
                 if (pulsarSourceConfig.getDeadLetterTopic() != null && !pulsarSourceConfig.getDeadLetterTopic().isEmpty()) {
                     deadLetterPolicyBuilder.deadLetterTopic(pulsarSourceConfig.getDeadLetterTopic());
                 }
-                cb.deadLetterPolicy(deadLetterPolicyBuilder.build());
+                cb = cb.deadLetterPolicy(deadLetterPolicyBuilder.build());
             }
 
-            return cb.subscribeAsync();
-        }).collect(Collectors.toList()).stream().map(CompletableFuture::join).collect(Collectors.toList());
+            Consumer<T> consumer = cb.subscribeAsync().join();
+            inputConsumers.add(consumer);
+        }
 
         inputTopics = inputConsumers.stream().flatMap(c -> {
             return (c instanceof MultiTopicsConsumerImpl) ? ((MultiTopicsConsumerImpl<?>) c).getTopics().stream()
@@ -147,7 +154,7 @@ public class PulsarSource<T> extends PushSource<T> implements MessageListener<T>
         Map<String, ConsumerConfig<T>> configs = new TreeMap<>();
 
         Class<?> typeArg = Reflections.loadClass(this.pulsarSourceConfig.getTypeClassName(),
-                Thread.currentThread().getContextClassLoader());
+                this.functionClassLoader);
 
         checkArgument(!Void.class.equals(typeArg), "Input type of Pulsar Function cannot be Void");
 
@@ -168,6 +175,10 @@ public class PulsarSource<T> extends PushSource<T> implements MessageListener<T>
 
     public List<String> getInputTopics() {
         return inputTopics;
+    }
+
+    public List<Consumer<T>> getInputConsumers() {
+        return inputConsumers;
     }
 
     @Data

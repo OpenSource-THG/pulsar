@@ -29,6 +29,7 @@ import org.apache.pulsar.common.functions.Utils;
 import org.apache.pulsar.common.io.SourceConfig;
 import org.apache.pulsar.common.policies.data.ExceptionInformation;
 import org.apache.pulsar.common.policies.data.SourceStatus;
+import org.apache.pulsar.common.util.RestException;
 import org.apache.pulsar.functions.auth.FunctionAuthData;
 import org.apache.pulsar.functions.instance.InstanceUtils;
 import org.apache.pulsar.functions.proto.Function;
@@ -39,7 +40,6 @@ import org.apache.pulsar.functions.utils.SourceConfigUtils;
 import org.apache.pulsar.functions.worker.FunctionMetaDataManager;
 import org.apache.pulsar.functions.worker.WorkerService;
 import org.apache.pulsar.functions.worker.WorkerUtils;
-import org.apache.pulsar.functions.worker.rest.RestException;
 import org.glassfish.jersey.media.multipart.FormDataContentDisposition;
 
 import javax.ws.rs.WebApplicationException;
@@ -89,12 +89,15 @@ public class SourcesImpl extends ComponentImpl {
             throw new RestException(Response.Status.BAD_REQUEST, "Namespace is not provided");
         }
         if (sourceName == null) {
-            throw new RestException(Response.Status.BAD_REQUEST, ComponentTypeUtils.toString(componentType) + " Name is not provided");
+            throw new RestException(Response.Status.BAD_REQUEST, "Source name is not provided");
+        }
+        if (sourceConfig == null) {
+            throw new RestException(Response.Status.BAD_REQUEST, "Source config is not provided");
         }
 
         try {
             if (!isAuthorizedRole(tenant, namespace, clientRole, clientAuthenticationDataHttps)) {
-                log.error("{}/{}/{} Client [{}] is not admin and authorized to register {}", tenant, namespace,
+                log.error("{}/{}/{} Client [{}] is not authorized to register {}", tenant, namespace,
                         sourceName, clientRole, ComponentTypeUtils.toString(componentType));
                 throw new RestException(Response.Status.UNAUTHORIZED, "client is not authorize to perform operation");
             }
@@ -118,7 +121,7 @@ public class SourcesImpl extends ComponentImpl {
                 }
             }
         } catch (PulsarAdminException.NotAuthorizedException e) {
-            log.error("{}/{}/{} Client [{}] is not admin and authorized to operate {} on tenant", tenant, namespace,
+            log.error("{}/{}/{} Client [{}] is not authorized to operate {} on tenant", tenant, namespace,
                     sourceName, clientRole, ComponentTypeUtils.toString(componentType));
             throw new RestException(Response.Status.UNAUTHORIZED, "client is not authorize to perform operation");
         } catch (PulsarAdminException.NotFoundException e) {
@@ -185,27 +188,30 @@ public class SourcesImpl extends ComponentImpl {
 
             // cache auth if need
             if (worker().getWorkerConfig().isAuthenticationEnabled()) {
+                Function.FunctionDetails finalFunctionDetails = functionDetails;
+                worker().getFunctionRuntimeManager()
+                        .getRuntimeFactory()
+                        .getAuthProvider().ifPresent(functionAuthProvider -> {
+                    if (clientAuthenticationDataHttps != null) {
 
-                if (clientAuthenticationDataHttps != null) {
-                    try {
-                        Optional<FunctionAuthData> functionAuthData = worker().getFunctionRuntimeManager()
-                                .getRuntimeFactory()
-                                .getAuthProvider()
-                                .cacheAuthData(tenant, namespace, sourceName, clientAuthenticationDataHttps);
+                        try {
+                            Optional<FunctionAuthData> functionAuthData = functionAuthProvider
+                                    .cacheAuthData(finalFunctionDetails, clientAuthenticationDataHttps);
 
-                        if (functionAuthData.isPresent()) {
-                            functionMetaDataBuilder.setFunctionAuthSpec(
+                            functionAuthData.ifPresent(authData -> functionMetaDataBuilder.setFunctionAuthSpec(
                                     Function.FunctionAuthenticationSpec.newBuilder()
-                                            .setData(ByteString.copyFrom(functionAuthData.get().getData()))
-                                            .build());
+                                            .setData(ByteString.copyFrom(authData.getData()))
+                                            .build()));
+                        } catch (Exception e) {
+                            log.error("Error caching authentication data for {} {}/{}/{}",
+                                    ComponentTypeUtils.toString(componentType), tenant, namespace, sourceName, e);
+
+
+                            throw new RestException(Response.Status.INTERNAL_SERVER_ERROR, String.format("Error caching authentication data for %s %s:- %s",
+                                    ComponentTypeUtils.toString(componentType), sourceName, e.getMessage()));
                         }
-                    } catch (Exception e) {
-                        log.error("Error caching authentication data for {} {}/{}/{}", ComponentTypeUtils.toString(componentType), tenant, namespace, sourceName, e);
-
-
-                        throw new RestException(Response.Status.INTERNAL_SERVER_ERROR, String.format("Error caching authentication data for %s %s:- %s", ComponentTypeUtils.toString(componentType), sourceName, e.getMessage()));
                     }
-                }
+                });
             }
 
             Function.PackageLocationMetaData.Builder packageLocationMetaDataBuilder;
@@ -250,12 +256,15 @@ public class SourcesImpl extends ComponentImpl {
             throw new RestException(Response.Status.BAD_REQUEST, "Namespace is not provided");
         }
         if (sourceName == null) {
-            throw new RestException(Response.Status.BAD_REQUEST, ComponentTypeUtils.toString(componentType) + " Name is not provided");
+            throw new RestException(Response.Status.BAD_REQUEST, "Source name is not provided");
+        }
+        if (sourceConfig == null) {
+            throw new RestException(Response.Status.BAD_REQUEST, "Source config is not provided");
         }
 
         try {
             if (!isAuthorizedRole(tenant, namespace, clientRole, clientAuthenticationDataHttps)) {
-                log.error("{}/{}/{} Client [{}] is not admin and authorized to update {}", tenant, namespace,
+                log.error("{}/{}/{} Client [{}] is not authorized to update {}", tenant, namespace,
                         sourceName, clientRole, ComponentTypeUtils.toString(componentType));
                 throw new RestException(Response.Status.UNAUTHORIZED, "client is not authorize to perform operation");
 
@@ -335,7 +344,6 @@ public class SourcesImpl extends ComponentImpl {
 
                     componentPackageFile = FunctionCommon.createPkgTempFile();
                     componentPackageFile.deleteOnExit();
-                    log.info("componentPackageFile: {}", componentPackageFile);
                     WorkerUtils.downloadFromBookkeeper(worker().getDlogNamespace(), componentPackageFile, existingComponent.getPackageLocation().getPackagePath());
 
                     functionDetails = validateUpdateRequestParams(tenant, namespace, sourceName,
@@ -360,35 +368,36 @@ public class SourcesImpl extends ComponentImpl {
 
             // update auth data if need
             if (worker().getWorkerConfig().isAuthenticationEnabled()) {
-                if (clientAuthenticationDataHttps != null && updateOptions != null && updateOptions.isUpdateAuthData()) {
-                    // get existing auth data if it exists
-                    Optional<FunctionAuthData> existingFunctionAuthData = Optional.empty();
-                    if (functionMetaDataBuilder.hasFunctionAuthSpec()) {
-                        existingFunctionAuthData = Optional.ofNullable(getFunctionAuthData(Optional.ofNullable(functionMetaDataBuilder.getFunctionAuthSpec())));
-                    }
-
-                    try {
-                        Optional<FunctionAuthData> newFunctionAuthData = worker().getFunctionRuntimeManager()
-                                .getRuntimeFactory()
-                                .getAuthProvider()
-                                .updateAuthData(
-                                        tenant, namespace,
-                                        sourceName, existingFunctionAuthData,
-                                        clientAuthenticationDataHttps);
-
-                        if (newFunctionAuthData.isPresent()) {
-                            functionMetaDataBuilder.setFunctionAuthSpec(
-                                    Function.FunctionAuthenticationSpec.newBuilder()
-                                            .setData(ByteString.copyFrom(newFunctionAuthData.get().getData()))
-                                            .build());
-                        } else {
-                            functionMetaDataBuilder.clearFunctionAuthSpec();
+                Function.FunctionDetails finalFunctionDetails = functionDetails;
+                worker().getFunctionRuntimeManager()
+                        .getRuntimeFactory()
+                        .getAuthProvider().ifPresent(functionAuthProvider -> {
+                    if (clientAuthenticationDataHttps != null && updateOptions != null && updateOptions.isUpdateAuthData()) {
+                        // get existing auth data if it exists
+                        Optional<FunctionAuthData> existingFunctionAuthData = Optional.empty();
+                        if (functionMetaDataBuilder.hasFunctionAuthSpec()) {
+                            existingFunctionAuthData = Optional.ofNullable(getFunctionAuthData(Optional.ofNullable(functionMetaDataBuilder.getFunctionAuthSpec())));
                         }
-                    } catch (Exception e) {
-                        log.error("Error updating authentication data for {} {}/{}/{}", ComponentTypeUtils.toString(componentType), tenant, namespace, sourceName, e);
-                        throw new RestException(Response.Status.INTERNAL_SERVER_ERROR, String.format("Error caching authentication data for %s %s:- %s", ComponentTypeUtils.toString(componentType), sourceName, e.getMessage()));
+
+                        try {
+                            Optional<FunctionAuthData> newFunctionAuthData = functionAuthProvider
+                                    .updateAuthData(finalFunctionDetails, existingFunctionAuthData,
+                                            clientAuthenticationDataHttps);
+
+                            if (newFunctionAuthData.isPresent()) {
+                                functionMetaDataBuilder.setFunctionAuthSpec(
+                                        Function.FunctionAuthenticationSpec.newBuilder()
+                                                .setData(ByteString.copyFrom(newFunctionAuthData.get().getData()))
+                                                .build());
+                            } else {
+                                functionMetaDataBuilder.clearFunctionAuthSpec();
+                            }
+                        } catch (Exception e) {
+                            log.error("Error updating authentication data for {} {}/{}/{}", ComponentTypeUtils.toString(componentType), tenant, namespace, sourceName, e);
+                            throw new RestException(Response.Status.INTERNAL_SERVER_ERROR, String.format("Error caching authentication data for %s %s:- %s", ComponentTypeUtils.toString(componentType), sourceName, e.getMessage()));
+                        }
                     }
-                }
+                });
             }
 
             Function.PackageLocationMetaData.Builder packageLocationMetaDataBuilder;

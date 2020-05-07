@@ -24,13 +24,13 @@ import org.apache.pulsar.common.functions.FunctionConfig;
 import org.apache.pulsar.common.functions.FunctionState;
 import org.apache.pulsar.common.io.ConnectorDefinition;
 import org.apache.pulsar.common.policies.data.FunctionStatus;
+import org.apache.pulsar.common.util.RestException;
 import org.apache.pulsar.functions.proto.Function;
 import org.apache.pulsar.functions.proto.InstanceCommunication;
 import org.apache.pulsar.functions.utils.FunctionCommon;
 import org.apache.pulsar.functions.utils.FunctionConfigUtils;
 import org.apache.pulsar.functions.worker.FunctionMetaDataManager;
 import org.apache.pulsar.functions.worker.WorkerService;
-import org.apache.pulsar.functions.worker.rest.RestException;
 import org.glassfish.jersey.media.multipart.FormDataContentDisposition;
 
 import javax.ws.rs.core.Response;
@@ -177,13 +177,13 @@ public class FunctionsImplV2 {
         return Response.ok().build();
     }
 
-    public Response uploadFunction(InputStream uploadedInputStream, String path) {
-        delegate.uploadFunction(uploadedInputStream, path);
+    public Response uploadFunction(InputStream uploadedInputStream, String path, String clientRole) {
+        delegate.uploadFunction(uploadedInputStream, path, clientRole);
         return Response.ok().build();
     }
 
     public Response downloadFunction(String path, String clientRole) {
-        return Response.status(Response.Status.OK).entity(delegate.downloadFunction(path)).build();
+        return Response.status(Response.Status.OK).entity(delegate.downloadFunction(path, clientRole, null)).build();
     }
 
     public List<ConnectorDefinition> getListOfConnectors() {

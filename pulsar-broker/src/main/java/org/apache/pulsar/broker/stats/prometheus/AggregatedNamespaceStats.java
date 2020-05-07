@@ -36,6 +36,7 @@ public class AggregatedNamespaceStats {
 
     public long storageSize;
     public long msgBacklog;
+    public long msgDelayed;
 
     long backlogSize;
     long offloadedStorageUsed;
@@ -89,8 +90,10 @@ public class AggregatedNamespaceStats {
         stats.subscriptionStats.forEach((n, as) -> {
             AggregatedSubscriptionStats subsStats =
                     subscriptionStats.computeIfAbsent(n, k -> new AggregatedSubscriptionStats());
+            msgDelayed += as.msgDelayed;
             subsStats.blockedSubscriptionOnUnackedMsgs = as.blockedSubscriptionOnUnackedMsgs;
             subsStats.msgBacklog += as.msgBacklog;
+            subsStats.msgBacklogNoDelayed += as.msgBacklogNoDelayed;
             subsStats.msgDelayed += as.msgDelayed;
             subsStats.msgRateRedeliver += as.msgRateRedeliver;
             subsStats.unackedMessages += as.unackedMessages;
@@ -116,6 +119,7 @@ public class AggregatedNamespaceStats {
 
         storageSize = 0;
         msgBacklog = 0;
+        msgDelayed = 0;
         storageWriteRate = 0;
         storageReadRate = 0;
 
