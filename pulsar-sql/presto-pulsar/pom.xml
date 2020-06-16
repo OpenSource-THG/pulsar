@@ -33,7 +33,7 @@
     <name>Pulsar SQL :: Pulsar Presto Connector Packaging</name>
 
     <properties>
-        <dep.airlift.version>0.170</dep.airlift.version>
+        <dep.airlift.version>0.187</dep.airlift.version>
         <jctools.version>2.1.2</jctools.version>
         <dslJson.verson>1.8.4</dslJson.verson>
     </properties>
@@ -159,8 +159,8 @@
 
                             </relocations>
                             <transformers>
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.PluginXmlResourceTransformer" />
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.PluginXmlResourceTransformer"/>
                             </transformers>
                         </configuration>
                     </execution>
