@@ -190,7 +190,7 @@ flexible messaging model and an intuitive client API.</description>
     <kafka-client.version>2.3.0</kafka-client.version>
     <rabbitmq-client.version>5.1.1</rabbitmq-client.version>
     <aws-sdk.version>1.11.297</aws-sdk.version>
-    <avro.version>1.9.1</avro.version>
+    <avro.version>1.9.2</avro.version>
     <joda.version>2.10.1</joda.version>
     <jclouds.version>2.2.0</jclouds.version>
     <sqlite-jdbc.version>3.8.11.2</sqlite-jdbc.version>
@@ -200,7 +200,7 @@ flexible messaging model and an intuitive client API.</description>
     <test-hdfs-offload-jetty>9.3.24.v20180605</test-hdfs-offload-jetty>
     <elasticsearch.version>6.3.2</elasticsearch.version>
     <presto.version>0.206</presto.version>
-    <flink.version>1.6.0</flink.version>
+    <flink.version>1.9.3</flink.version>
     <scala.binary.version>2.11</scala.binary.version>
     <debezium.version>1.0.0.Final</debezium.version>
     <jsonwebtoken.version>0.11.1</jsonwebtoken.version>
