@@ -160,7 +160,7 @@ flexible messaging model and an intuitive client API.</description>
     <netty-tc-native.version>2.0.30.Final</netty-tc-native.version>
     <storm.version>2.0.0</storm.version>
     <jetty.version>9.4.20.v20190813</jetty.version>
-    <jersey.version>2.27</jersey.version>
+    <jersey.version>2.31</jersey.version>
     <athenz.version>1.8.38</athenz.version>
     <prometheus.version>0.5.0</prometheus.version>
     <aspectj.version>1.9.2</aspectj.version>
@@ -173,7 +173,7 @@ flexible messaging model and an intuitive client API.</description>
     <jackson.version>2.10.1</jackson.version>
     <jackson.databind.version>2.10.1</jackson.databind.version>
     <reflections.version>0.9.11</reflections.version>
-    <swagger.version>1.5.21</swagger.version>
+    <swagger.version>1.6.2</swagger.version>
     <puppycrawl.checkstyle.version>6.19</puppycrawl.checkstyle.version>
     <dockerfile-maven.version>1.4.13</dockerfile-maven.version>
     <typetools.version>0.5.0</typetools.version>
